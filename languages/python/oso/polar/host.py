@@ -72,10 +72,10 @@ class Host:
             raise PolarRuntimeError(f"Error constructing instance of {name}: {e}")
         return self.cache_instance(instance, id)
 
-    def unify(self, left_instance_id, right_instance_id) -> bool:
+    def unify(self, left, right) -> bool:
         """Return true if the left instance is equal to the right."""
-        left = self.get_instance(left_instance_id)
-        right = self.get_instance(right_instance_id)
+        left = self.to_python(left)
+        right = self.to_python(right)
         return left == right
 
     def isa(self, instance, class_tag) -> bool:
