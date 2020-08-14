@@ -68,6 +68,10 @@ impl MockExternal {
         }
     }
 
+    pub fn external_unify(&mut self, _left: Term, _right: Term) -> bool {
+        false
+    }
+
     pub fn external_is_subspecializer(
         &mut self,
         instance_id: u64,

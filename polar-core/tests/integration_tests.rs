@@ -50,12 +50,18 @@ fn no_is_subspecializer(_: u64, _: Symbol, _: Symbol) -> bool {
     false
 }
 
-fn query_results<F, G, H, I, J, K>(
+fn no_external_unify(_: u64, _: Term, _: Term) -> bool {
+    false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn query_results<F, G, H, I, J, K, L>(
     mut query: Query,
     mut external_call_handler: F,
     mut make_external_handler: H,
     mut external_isa_handler: I,
     mut external_is_subspecializer_handler: J,
+    mut external_unify_handler: L,
     mut debug_handler: G,
     mut message_handler: K,
 ) -> QueryResults
@@ -66,6 +72,7 @@ where
     I: FnMut(Term, Symbol) -> bool,
     J: FnMut(u64, Symbol, Symbol) -> bool,
     K: FnMut(&Message),
+    L: FnMut(u64, Term, Term) -> bool,
 {
     let mut results = vec![];
     loop {
@@ -107,6 +114,11 @@ where
                 instance,
                 class_tag,
             } => query.question_result(call_id, external_isa_handler(instance, class_tag)),
+            QueryEvent::ExternalUnify {
+                call_id,
+                left,
+                right,
+            } => query.question_result(call_id, external_unify_handler(call_id, left, right)),
             QueryEvent::ExternalIsSubSpecializer {
                 call_id,
                 instance_id,
@@ -133,6 +145,7 @@ macro_rules! query_results {
             no_externals,
             no_isa,
             no_is_subspecializer,
+            no_external_unify,
             no_debug,
             print_messages,
         )
@@ -144,6 +157,7 @@ macro_rules! query_results {
             $make_external_handler,
             no_isa,
             no_is_subspecializer,
+            no_external_unify,
             $debug_handler,
             print_messages,
         )
@@ -155,6 +169,7 @@ macro_rules! query_results {
             no_externals,
             no_isa,
             no_is_subspecializer,
+            no_external_unify,
             no_debug,
             print_messages,
         )
@@ -166,6 +181,7 @@ macro_rules! query_results {
             no_externals,
             no_isa,
             no_is_subspecializer,
+            no_external_unify,
             no_debug,
             $message_handler,
         )
@@ -181,6 +197,7 @@ fn query_results_with_externals(query: Query) -> (QueryResults, MockExternal) {
             |a, b| mock.borrow_mut().make_external(a, b),
             |a, b| mock.borrow_mut().external_isa(a, b),
             |a, b, c| mock.borrow_mut().external_is_subspecializer(a, b, c),
+            |_, b, c| mock.borrow_mut().external_unify(b, c),
             no_debug,
             print_messages,
         ),
