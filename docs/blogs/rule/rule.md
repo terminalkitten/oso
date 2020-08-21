@@ -3,79 +3,95 @@ Anatomy of a Rule
 
 Introduction
 ------------
-Rules are the building blocks of any authorization policy, but the policies
-that you can build with them are inherently constrained by their syntax,
-semantics, and implementation. For example, an ordered list of `allow` or
-`deny` statements with logical expressions over global variables like `ip`,
-`request`, etc. is often sufficient for simple policies. But what happens
-when your policy requires that the user's credentials be checked against
-attributes of your application's data? How should you order rules that are
-data-dependent? What if the rules need to index into a large permissions
-matrix? What about delegation? Inheritance?
+Rules are the building blocks of any authorization policy.
+But they are often used for two different purposes:
 
-Authorization systems that handle these more complex cases sometimes do so by
-[foisting the complexity onto the user](http://docs.oasis-open.org/xacml/3.0/errata01/os/xacml-3.0-core-spec-errata01-os-complete.html).
-oso is an authorization system that was designed specifically to handle as
-much of the complexity itself as possible, allowing you, the user, to
-concentrate on the policy, not the vagaries of its expression or encoding.
+* To express abstract authorization logic
+* To encode concrete permissions data
 
-A Simple Policy
----------------
-Let's start simple. Suppose you're Marjory, proud manager of Alice and
-Bhavik, who write reports on widgets for your mutual employer, BigCorp.
-Let's say these reports are fairly sensitive (widgets being in high
-demand), and so you need to protect against unauthorized report access.
-The following informal statements might be a reasonable start to an
-authorization policy:
+An access control list (ACL) is an example of the latter: you write
+a (long) list of who can do what. But role-based access control (RBAC)
+involves logical operations: *if* user `U` is an element of group `G`
+and group `G` has permission `Y`, *then* `U` has permission `Y`.
 
-* Alice is allowed to view and modify their own reports.
-* Bhavik is allowed to view and modify their own reports.
-* Marjory is allowed to view, but not modify, reports by both Alice and Bhavik.
+An authorization system that goes beyond ACLs and RBAC often needs to
+handle rules of both sorts. Sometimes you want the flexiblity of a full
+programming language — certainly at least powerful logical expressions,
+and for complex policies, types and inheritance. But other times you might
+need to encode a whole permissions matrix, and would like lookups to be
+fast even over a large matrix; these are more aspects of a data store
+than a language.
 
-In oso, you could express these statements in our domain-specific rule
-language, Polar, like this:
+In this article, we'll take a deep dive into the anatomy of a rule in oso,
+and how & why we built the interpreter to support both models. Spoiler:
+it's a Prolog interpreter with some fancy indexing and a swanky FFI.
+We've added some tricks — in accordance with our [3rd principle], we freely
+extended the basic model to make it suit our applications. We're [not] [the]
+[only] [ones] [doing] [this]. We think that's a strength: we're building on
+a common framework and execution model that's proved its strengths and
+flexibility over many decades.
+
+Introduction to oso
+-------------------
+Spell out the basic architecture: user <-> application <-> oso.
+Library embedding, FFI. Polar language vs. oso system.
+
+Rules in oso
+------------
+So that we can be very concrete in our discussion of rules, we'll need
+a simple example. The only "distinguished" rule (only by convention)
+in oso is named `allow`, and some simple definitions for it might look
+something like this:
 
 ```polar
-allow("alice", action, resource) if
-    action in ["GET", "PUT"] and
-    resource.startswith("/reports/alice/");
-allow("bhavik", action, resource) if
-    action in ["GET", "PUT"] and
-    resource.startswith("/reports/bhavik/");
-allow("marjory", action, resource) if
-    action in ["GET", "PUT"] and
-    resource.startswith("/reports/");
+allow("alice", "GET", "/reports/alice/");
+allow("bhavik", "GET", "/reports/bhavik/");
+allow("marjory", "GET", "/reports/alice/");
+allow("marjory", "GET", "/reports/bhavik/");
+allow("marjory", "PUT", "/reports/alice/");
+allow("marjory", "PUT", "/reports/bhavik/");
 ```
 
-(We'll leave out the authentication piece here; suppose that we've
-already validated an OAuth JWT, say, to obtain and validate a user name
-like `"alice"`.) If you put this policy in a file called `auth.polar`,
-you can load it into oso from your Python application init code:
+Here we've got a handful of `allow` rules for the *actors* Alice, Bhavik,
+and Marjory, *actions* `"GET"` and `"PUT"`, and *resources* that are paths
+to (presumably) reports. We can plausibly infer from this policy that Marjory
+is a manager of some sort for Alice and Bhavik, but we have chosen not to
+encode that information explicitly yet.
+
+Suppose our web application receives a `"GET"` request from Marjory —
+authenticated, say, via OAuth, etc., and identified in the policy by
+the string `"marjory"` — for `"/reports/alice/"`. The application wishes
+to know if this request is permitted according to the policy above,
+so it calls (in Python, say):
 
 ```python
 from oso import Oso
 oso = Oso()
-oso.load_file("auth.polar")
+oso.load_file("policy.polar")
+
+oso.is_allowed("marjorie", "GET", "/reports/alice/")
 ```
 
-And then when you get a request from `user` for some `resource`, you can call:
+The first three lines are setup, and would normally be done during
+application initialization. The `oso.is_allowed(...)` call performs the
+authorization check (and must be fast enough to do on *every request*);
+it returns true or false depending on whether the supplied *actor*, *action*,
+and *resource* arguments successfully match the `allow` rules defined:
+it *queries* the policy engine for `allow(action, actor, resource)`.
+In this case there would be a match; but not, for instance, if the actor
+were `"bhavik"` instead of `"marjorie"`, or the request were `"DELETE"`
+instead of `"GET"`, since we have not defined rules that would match
+those arguments.
 
-```python
-oso.is_allowed(user, request.method, resource.path)
-```
-
-which will return `True` or `False` ("allowed" or "denied") based on the
-supplied arguments by consulting the `allow` rules defined by your policy.
-
-Code & Data
+Code & data
 -----------
 From the application's point of view, the arguments to
 `is_allowed(actor, action, resource)` are *data*
-(possibly from the application, or from an identity provider, etc.),
+(from the application, the request, an identity provider, etc.),
 and the rules are *code* that is *evaluated* over that data to
-make a decision. Speeding up query evaluation can thus be treated as
-an exercise in interpreter (or compiler) design, and a standard set of
-well-known tricks can be applied.
+make a decision. Making query evaluation fast can thus be treated as
+an exercise in interpreter (or compiler) design, and a standard set
+of well-known tricks can be applied.
 
 But another way to think of rules is as patterns, like regular expressions,
 that can (fail to) *match* the supplied data, just as a regular expression
@@ -83,81 +99,65 @@ can (fail to) match a specific input string. A related view is as records
 in a database; the arguments would then comprise the data values in the
 query against those records. A database with three records is not hard to
 make fast with trivial algorithms, but when we get into realistic sizes,
-naive search techniques become impractically slow. Spending some time up
-front (i.e., ahead of match/query time) to preprocess/index the
-patterns/records can yield large savings at query time for certain kinds of
-inputs/queries. And so a completely different, but also standard, set of
-well-known tricks can be applied to make the search/query performant.
+naive search techniques become impractically slow. Spending some time
+up front (i.e., ahead of match/query time) to preprocess/index the
+patterns/records can yield large savings at query time for certain kinds
+of inputs/queries. And so a completely different set of standard tricks
+can be applied to make the search/query fast.
 
 So which is it? Are rules code or data, fish or fowl? In the following
-sections, we'll dive into the meaning and structure of rules in oso, and
-see how and why oso is comfortable treating them as whatever your
+sections, we'll dive into the meaning and structure of rules in oso,
+and see how and why oso is comfortable treating them as whatever your
 authorization policy and dietary restrictions require.
 
-Rules Abstractly
-----------------
-Rules drive the query process, and so the internals are interesting and
-challenging from an implementation standpoint. But they are also the basic
-unit of expression in our authorization language, and so are perhaps worth
-talking about abstractly for a minute before we dive into the gory details
-of the query execution model.
-
-When you write a rule, you are expressing a piece of the authorization
-logic for your application. If you were to express your policy in English,
-rules would be the sentences: "Alice is allowed to view her own reports."
-But English is not precise enough, and one of the basic premises of oso
-is that most procedural and object oriented languages are poorly suited
-to expressing complex sets of declarative logical statements. The syntax,
-semantics, and implementation choices of rules all matter, because if any
-of them obscure or inhibit the natural expression of your authorization
-logic, then the system has not succeeded in its basic goal of simplifying
-your implementation of a complex authorization policy.
-
-Often the easiest way to express authorization policies is to have the
-data that decisions are based on live in your application, and to use
-application types (LINK) to call into your application when data is needed
-to make a decision; this is (rougly) the "rules as code" point of view.
-But other times it's easier or more convenient (especially when migrating
-from another authorization system) to simply embed the necessary data
-directly into the policy as literals (usually strings, but not necessarily).
-This makes rules behave more like *data* than *code*, and the the rule
-application process takes aspects of a (simple) database lookup. We've
-built our rule engine so that such policies can still be fast, with no
-additional work on your part.
-
-From a design and implementation standpoint, then, rules must be powerful
-enough to express all of the necessary authorization logic, concise enough
-to not obscure that logic, and performant enough to render authorization
-decisions in a timely manner.
-
-Rules Concretely
-----------------
-So far we have talked about rules only abstractly. To be concrete, we'll
-need to recall a few definitions from basic programming language theory.
-Every function/procedure/rule/etc. has an associated list of *parameters*,
-i.e., the expressions in parens in a function definition. In Python, `def
-f(x, y): ...` has parameters `x` and `y`, which are both variables. Its
-*body* is the stuff in `...`; it may refer to the variables `x` and `y`
-with the assumption that they are bound. When you *call* a function, you
-supply *arguments*; these are the values to which the parameter variables
-are bound as part of the function call process. For instance, given the
-prior definition, `f(1, 2)` calls the function named `f` with the arguments
-`1` and `2`, which the variables `x` and `y`, respectively, are bound to in
-the body of `f`.
-
-Rules in Polar are roughly akin to functions in languages like Python,
+What's in a rule?
+-----------------
+Let's examine the structure of a rule now, and see what makes it tick.
+Rules in oso are roughly akin to functions in languages like Python,
 or more precisely methods in a multiple dispatch object oriented language.
-But as we'll see, there are also some important differences. Conceptually,
-a `Rule` represents *one particular implementation* of a *predicate*,
-which, when supplied at query time with a set of arguments that match its
-parameters, is true just when a query for each conjunct in its body is also
-true; otherwise it is false. There's the same kind of basic "match/bind
-supplied arguments to parameters, then recursively do something with the
-body" structure, but, crucially, the matching process for Polar rules
-is significantly more expressive than simple binding.
+Abstractly, rules are piece-wise definitions of a *predicate*, a logical
+proposition that is either *true* or *false* when we *query* for it.
+That is, all of the rule definitions we've seen so far are "pieces" of
+the predicate `allow(actor, action, resource)` for any given values
+of the *arguments* `actor`, `action`, and `resource`. Each rule is
+*applicable* only to certain queries for that predicate; namely, queries
+whose supplied arguments *match* the *parameters* defined for that rule.
+We'll talk more about the matching process below, but in short, it's a
+combination of equality & binding (unification), structure matching over
+compound types, and class-based type restrictions (instance-of).
 
-All of this is still abstract. Concretely, rules are represented in Polar
-by a very simple data structure:
+Ok, enough abstraction. The concrete syntax of rule definitions in Polar
+is just the rule name, followed by the parameter list, optionally
+followed by the keyword `if` and a body. So a rule with no body is
+defined like this:
+
+```polar
+allow(actor, action, resource);
+```
+
+This rule will match *any* arguments by simply binding the parameter
+variables to them. If we want the rule to match conditionally, we can
+either restrict the parameters:
+
+```polar
+allow("alice", "GET", "/reports/alice/");
+```
+
+Or we can add a body:
+
+```polar
+allow(actor, action, resource) if
+    actor = "alice" and
+    action = "GET" and
+    resource = "/reports/alice/";
+```
+
+These two definitions mean exactly the same thing, although we'll see
+shortly why we might prefer one to the other. (Spoiler: the indexer
+can't "see" into the body of a rule, just its parameters.)
+
+We've now see the three attributes — name, parameter list, and body —
+which all we need to represent rules in the Polar virtual machine:
 
 ```rust
 pub struct Rule {
@@ -166,28 +166,12 @@ pub struct Rule {
     pub body: Term,
 }
 ```
+(This is [our actual definition](https://github.com/osohq/oso/blob/74f47b75d86f8386a97fedd251bfae5f1017558b/polar-core/src/types.rs#L506.)
 
-(This is [our actual definition](https://github.com/osohq/oso/blob/74f47b75d86f8386a97fedd251bfae5f1017558b/polar-core/src/types.rs#L506).)
-A rule has a name (a `Symbol` is just a wrapper for a `String`), a vector
-of parameters (we'll get to what's in `Parameter` shortly), and a body, which
-we represent as a general `Term` (i.e., any Polar expression) for convenience,
-but semantically it's always a (possibly empty) conjunction of terms.
-An empty body corresponds to an empty conjunct, which is taken as true;
-such rules need only match their parameters. For example, we can define
-the rules:
-
-```polar
-odd(1);
-even(2);
-```
-And then a query for the predicates `odd(1)` or `even(2)` will succeed
-since they are true according to the rule definitions, but `odd(2)` or
-`even(1)` will fail; [anything that is not known to be true is assumed
-to be false](https://en.wikipedia.org/wiki/Closed-world_assumption).
-
-All right, so what's in a `Parameter`? The example above shows that it
-doesn't just have to be a variable, as in many languages. Indeed, it may
-be any term:
+Some notes on the types here: a `Symbol` is just a wrapper for a `String`,
+`Vec` is a random-access vector, and `Term` represents an arbitrary Polar
+term. A `Parameter` doesn't just have to be a variable, though, as we've
+seen. Indeed, it may be any term, and there's also an optional *specializer*:
 
 ```rust
 pub struct Parameter {
@@ -196,76 +180,197 @@ pub struct Parameter {
 }
 ```
 
-The syntax in Polar is `parameter: specializer`. The formal `parameter`
-is often, but not necessarily, a variable named by a symbol like `actor`,
-but it may be an arbitrary term, and is matched with an equality relation
-(unification). The `specializer` is a type restriction or declaration,
-and is matched with a subtyping relation. The specializer is optional;
-for example, the `actor` parameter in the rule below is unspecialized,
-but the third parameter `_resource` is required to be a `Report` whose
-`author` attribute is whatever the value of `actor` is:
+The syntax in Polar is `parameter: specializer`. The formal parameter
+may be a variable like `actor`, but it may also be an arbitrary term;
+it is matched via unification, which doesn't care. The `specializer`
+is a type restriction or declaration, and is matched with a subtyping
+relation that subsumes unification. In particular, it may be one of
+your [application types], and will respect the subtyping semantics
+of your application language.
 
-```polar
-allow(actor, "GET", _resource: Report{author: actor});
+For example, we might choose to represent our reports not by their paths,
+but by instances of a (registered) application class. We can decorate
+(or manually register) our Python class:
+
+```python
+@polar_class
+class Report:
+   ...
 ```
 
-(The leading `_` on `_resource` is just to tell Polar that we know that
-variable isn't used anywhere, just matched via the specializer. If we
-don't, it will issue a "singleton variable" warning when the rule is
-loaded, because that sometimes indicates a logic bug.) Given the rule above
-and an appropriate `Report` class definition, a query for the predicate:
+And in the Polar policy, we can now use `Report` as a type specializer:
+
+```polar
+allow(actor, "GET", resource: Report{author: actor});
+```
+
+This is read: "allow `actor` to `GET` a `Report` that they wrote".
+Then the query:
 
 ```polar
 allow("alice", "GET", new Report{author: "alice"})
 ```
 
-should succeed (CHECK), and so, therefore, should the Python call:
+should succeed, and so, therefore, should the Python call:
 
 ```python
 is_allowed("alice", "GET", Report(author="alice"))
 ```
 
-Rule Lookup
------------
-Now let's follow the query logic and see how it interacts with the rules.
-We start with:
+The type restriction `Report` also matches instances of any subclass,
+because specializers are matched via subtyping. E.g., if we have:
+
+```python
+@polar_class
+class SpecialReport(Report):
+    ...
+```
+
+And then call:
+
+```python
+is_allowed("alice", "GET", SpecialReport(author="alice"))
+```
+
+This result will also be true. We can see here how Python instances are
+represented within Polar, and how it is possible to construct them from
+either language and pass them seamlessly back and forth. You can do this
+with any of our supported host languages (Python, Ruby, Java, and Node.js
+so far).
+
+Selecting & filtering rules
+---------------------------
+Suppose that instead of just Alice, Bhavik, and Marjory, we have a whole
+organization's worth of people to authorize. Especially if we're migrating
+from another authorization system, the easiest way to get authorization up
+and running quickly might be to mechanically (and possibly automatically)
+convert a permissions matrix into a set of Polar rules:
 
 ```polar
-allow("alice", "GET", new Report{author: "alice"})
+allow("alice", "GET", "/reports/alice/");
+allow("alice", "PUT", "/reports/alice/");
+allow("bhavik", "GET", "/reports/bhavik/");
+allow("bhavik", "PUT", "/reports/bhavik/");
+allow("charlie", "GET", "/reports/charlie/");
+allow("charlie", "PUT", "/reports/charlie/");
+...
+allow("zed", "GET", "/reports/zed/");
+allow("zed", "PUT", "/reports/zed/");
 ```
 
-The name of the predicate being queried is `allow`, so the first thing to
-do is get all the `allow` rules. We keep these in a hash table indexed by
-name, so this lookup is cheap. What we get back isn't just a vector of
-`Rule` instances, though; it's what we call a `GenericRule`:
+This policy does not exploit any of the structure inherent in the data;
+it just encodes it directly. The problem, of course, is that such policies
+quickly grow *enormous*. Abstracting policy types and logic can help, but
+often there is still a core data set that is most naturally expressed
+directly.
 
-```rust
-pub struct GenericRule {
-    pub name: Symbol,
-    next_rule_id: u64,
-    rules: HashMap<u64, Arc<Rule>>,
-    index: RuleIndex,
-}
+Let's see what happens for a query like:
+
+```polar
+allow("zed", "GET", "/reports/alice/")
 ```
 
-This is the data structure we'll discuss for most of the rest of this article.
+This query should fail (i.e., be false), because Zed is not allowed
+to view Alice's reports. But in a naive implementation, we would need
+to try matching *every `allow` rule defined* to make this determination.
+For large rule sets, the performance of this strategy quickly becomes
+unacceptable.
 
-Generic Rules
+But notice that none of the parameters of the rules above contain
+variables or specializers; they are *ground* terms, whose values are
+*constant*. Moreover, all of the arguments to the query predicate
+are also ground; we're not asking for a *set* of authorized actors
+for this action on this resource, we're asking is *this* user authorized
+to take *this* action on *this* resource; all of those values are ground,
+too. This observation enables us to build, ahead of time, an index over
+the ground parameters of rules that lets us do very fast parameter/argument
+matching in the (common) case where the arguments are also ground. We use
+a sparse trie of hash tables in our implementation (the standard choice),
+and have found that it can speed up realistic queries over large,
+data-intensive policies by an order of magnitude or more. Specifically,
+the speedup comes from removing rules from consideration that can quickly
+be determined to be inapplicable. We call this our *rule pre-filter*.
+Its goal is get the size of the set of rules that must be considered
+in detail down from an arbitrarily large number to, ideally, one or
+a few.
+
+The rules that remain after pre-filtering *could* be applicable to the
+supplied query arguments; the index will rule out ones that *can't* be
+applicable, but it can't decide for non-ground terms. The job of the rule
+*filter* is to eliminate those that are *actually* not applicable in the
+current dynamic context. It does this by attempting to unify the argument
+with the parameter and match it against the specializer (if there is one).
+Either of those could potentially require an FFI round-trip to the
+application to answer, which is *much* more expensive than an index lookup.
+
+Sorting rules
 -------------
-First, the name. A `GenericRule` is not "generic" in the sense of being
-"unspecific", nor is it used in the sense of "generics", i.e.,
-"generic over a range of parameterized types" like `<T>` in Rust, Java,
-C++, etc. It is rather meant in the sense of
-[generic functions](http://clhs.lisp.se/Body/26_glo_g.htm#generic_function)
-in Common Lisp or [Julia](https://docs.julialang.org/en/v1/manual/methods/).
-Individual rules (methods) implement a piece of the overall "generic rule";
-the "piece" is the set of arguments its parameters match. The behavior
-of the generic rule as a whole is completely determined by the rules
-that comprise it, together with a strategy for matching them against
-a supplied set of arguments and ordering the results of that match.
+Having filtered our rules for applicability, we know that the remaining
+rules could succeed (but may not if they have bodies). But in what order
+shall we query them? The order of definition is one natural order, and
+in fact our whole rule selection & sorting process is stable with respect
+to that ordering. But we also impose a stronger, and, we think, more useful
+ordering: *more specific rules run first*. In data-heavy policies, the
+ordering usually doesn't matter; but if your policy is organized around
+domain model classes, then being able to *override* rules defined on
+*less specific* (i.e., more general) superclasses is extremely valuable.
 
-For example, suppose we represent users as instances of a `User` class,
-and that there's a privileged `SuperUser` subclass:
+We therefore *sort* the applicable rules by *specificity*. The details of
+this relation are somewhat complex (see, e.g., [JLS 15.2], [Common Lisp]),
+but the basics are simple: two terms that unify are identically specific;
+a subclass is more specific than any of its superclasses; and specializers
+with attributes (fields) are more specific than those without. The
+difficulty is that we can't, in general, make some of those determinations
+without asking the application. (E.g., think about what happens if your
+classes have a custom equality method, which changes the semantics of
+unification; or use metaclasses to change the semantics of inheritance,
+etc.) And so we can't just call `rules.sort()` on a vector of rules,
+because the comparison function itself could require an FFI round-trip.
+
+This design constraint made implementing the sort itself an interesting
+challenge. Our solution was to "hand compile" a simple sorting algorithm
+with explicit state management directly on the VM, so that it can use
+its standard FFI calls to answer questions like "is class `X` more specific
+than class `Y` with respect to object `z`?" essentially as subroutines
+of its comparison predicate.
+
+For a few rules, this process is reasonably fast, but for many rules
+it can be a performance bottleneck, even with caches; hence the importance
+of the filtering stages described above. If the filters can get the set
+of applicable rules down to a singleton, then the sort is obviously trivial,
+and takes no time.
+
+Generic rules
+-------------
+The process we've just described for selecting, filtering, and sorting
+applicable rules is part of what we call our [generic rule](LINK)
+implementation. We don't mean "generic" in the sense of "unspecific",
+nor do we mean "generic over a range of parameterized types" like `<T>`
+in Rust, Java, C++, etc. It is meant rather in the sense of
+[generic functions in Common Lisp](http://clhs.lisp.se/Body/26_glo_g.htm#generic_function)
+or [Clojure](LINK)
+or [Julia](https://docs.julialang.org/en/v1/manual/methods/):
+individual rules (methods) implement a "piece" of the overall behavior,
+defined over the set of arguments its parameters match. The behavior of the
+generic rule as a whole is completely determined by the rules that comprise
+it, together with a specified strategy for matching them against a supplied
+set of arguments and ordering the results of that match.
+
+Some languages (e.g., Python or Java), support methods specialized
+only over their first argument (`self` or `this`). But generic rules
+may be specialized on *any* argument, or all of them; they are
+*multi-methods*. We think this is an important property for authorization
+rules to have, because so much of authorization is dependent on the
+*relations between* the actor, action and resource, not just properties
+or methods on one — the question is always *which* one, and with respect
+to which other? With multi-methods, you are not forced to artificially
+choose; you may simply express the relationship directly.
+
+Let's make this concrete. We showed above some `allow` rules that
+specialized their `resource` arguments on (subclasses of) an
+application-defined `Report` class. Suppose now we also wish to
+represent users as instances of a `User` class, and that there's
+a privileged `SuperUser` subclass, say:
 
 ```python
 class User:
@@ -274,117 +379,33 @@ class SuperUser(User):
     ...
 ```
 
-These classes may be used as specializers, so we might have a pair of rules
-like this:
+These classes may *also* be used as specializers, so we might have
+rules like:
 
 ```polar
-allow(user: User, action, resource);
-allow(user: SuperUser, action, resource);
+allow(actor: User, "GET", resource: Report{author: actor});
+allow(actor: SuperUser, "GET", resource: Report);
+allow(actor: SuperUser, "PUT", resource: Report);
+allow(actor: SuperUser, "DELETE", resource: Report);
 ```
 
-Rule Sorting
-------------
-Now, in which order shall we consult these two rules? The first is
-obviously defined first, so that might be the natural choice. Another
-natural choice might be to have it simply not matter, and to insist
-that rule application be a commutative operation. But this strategy
-does not work if you want to be able to *override* behavior specialized
-on *less specific* classes (i.e., superclasses). This ability is important
-in several kinds of authorization scenarios; e.g., if a default logging or
-warning method should be overridden for a super user, `deny`, etc.
+If we like we can abstract actions as well, to group them, say:
 
-We therefore *sort* rules according to the specificity of their specializers
-in left-to-right order. In the rules above, the first parameter's
-specializer is more specific in the second rule with respect to
-any instance of `User` or a subclass thereof, and so it is selected first.
+```polar
+allow(actor: User, action: Read, resource: Report{author: actor});
+allow(actor: SuperUser, action: Access, resource: Report);
+```
 
-The particulars of the rule sorting algorithm are somewhat complex,
-and may be covered in a future article. In short, we can't just call
-`rules.sort()` on some vector of rules, because the comparison predicate
-may need to perform FFI calls into the application to determine whether
-one application class is more specific than another with respect to some
-argument. But details aside, the result of the process is a list of rules
-in most-to-least specific order with respect to the given arguments.
-
-Rule Filtering
---------------
-We could sort every rule defined as part of a generic rule, but doing
-so would be rather slow, especially with a large number of rules. So we
-*filter* the rules by applicability prior to sorting them. That means
-we check each rule *prior* to sorting, and reject it if the arguments
-don't match the parameters. For example, if an argument isn't of the
-type required by the corresponding parameter specializer, the rule is
-not applicable, and so we should not bother to sort or execute it.
-
-Rules as Data
--------------
-The model of generic rules we've described so far works well for the
-"rules as code" point of view: rules are like (multi) methods that
-collectively comprise the behavior of a predicate. But what if we
-want to take another (completely valid) point of view: that the rules
-represent *data* about the allowable combinations of actor, action,
-and resource, and it is to be *matched* against a particular triple
-of values.
-
-For example, suppose we already had a complex authorization system
-that used a permissions matrix of the form: ...
-
-Now, one simple way to get this data into oso is to mechanically translate
-it into rules of the form: ...
-
-If the matrix is large, there will be *many* such rules. But the rules
-aren't specialized in the same sort of way as the ones above; they're
-less "code" and more "data".
-
-Similar situations may arise importing data from an identity provider such
-as LDAP, or if you simply have a lot of users and want to represent them
-directly in oso.
-
-Pre-filtering
--------------
-We can't tell the difference syntactically between a "code" rule and a
-"data" rule, because there is in fact no local distinction; it's a global
-property of the policy, not a local property of the rules themselves. So
-we can't give up semantics that are important for the "code" view, but it
-turns out that enforcing those semantics for "data" style rules is *slow*
-if you don't compensate for the (much) greater number of rules.
-
-Our solution is to *pre-filter* rules based on an index that's computed
-ahead of time (as rules are added to the generic function). Pre-filtering
-quickly prunes rules that are not applicable to the supplied arguments.
-
-Consider this set of rules: ... rules w/lots of literals ...
-We build an index like so ...
-
-Indices are automatic; you don't need to "opt in".
-
-Indices are only over ground terms, but can "look over" variables or
-application instances.
-
-We also pre-filter lists, so that lists like `["GET", "POST"]` above,
-and especially much longer examples, are also fast.
-
-Generic Rules Redux
--------------------
-We've now seen how individual rule definitions (i.e., the statements
-you write in your policy) are grouped into generic rules. The generic
-rules represent predicates that are queried with a given set of arguments.
-That query process selects rules that are applicable to the arguments,
-sorts them in most-to-least-specific order, and applies them one at a
-time to the arguments. Cases where there are many rules with constant
-parameters (i.e., "data") are sped up using precomputed indexes over
-those values.
-
-This all sounds quite complex, and in a sense it is. But our reasons for
-doing it in oso are simple: so that you don't have to. *Any* rule system
-must decide how to order the rules that have been loaded; simple rule
-systems rely on simple heuristics such as the order of definition, but for
-more complex policies those become untenable. Some systems allow rules to
-be ordered in various ways, but make *you* specify *how*. We think that
-such concerns are best handled automatically, in an intuitive and flexible
-way, in particular by leveraging subtyping relations (inheritance) that
-you've already defined for your application classes.
+Here we have a generic rule, `allow`, with specific implementations (rules,
+or "methods" if you like) that specialize on all of its arguments' types.
+This is an extremely flexible framework for expressing complex logic
+concisely as code.
 
 Conclusion
 ----------
-...
+So we've come back around to view rules as code again. As code, they have
+strict execution semantics that must agree with those of the application.
+But we have also seen them as data, encoding permissions directly and
+eschewing the complexities of a general language. To handle complex
+authorization policies efficiently, we must view rules as neither one nor
+the other per se, but rather optimize for both viewpoints simultaneously.
