@@ -28,7 +28,7 @@
     "docs-build": "typedoc --options typedoc.js",
     "docs-watch": "chokidar 'src/**/*.ts' -c 'yarn docs-build'",
     "docs-serve": "live-server docs",
-    "build": "yarn tsc --project tsconfig.build.json"
+    "build": "yarn tsc --project tsconfig.build.node.json"
   },
   "devDependencies": {
     "@types/jest": "^26.0.9",
