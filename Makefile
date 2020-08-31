@@ -61,10 +61,11 @@ lint: fmt clippy
 	$(MAKE) -C languages/js lint
 
 wasm-build:
-	$(MAKE) -C polar-wasm-api build
+	$(MAKE) -C polar-wasm-api build-node
 
 wasm-test:
-	$(MAKE) -C polar-wasm-api test
+	$(MAKE) -C polar-wasm-api test-node
+	$(MAKE) -C polar-wasm-api test-browser
 
 js-test:
 	$(MAKE) -C languages/js parity

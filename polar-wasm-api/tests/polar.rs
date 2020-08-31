@@ -2,6 +2,9 @@ use js_sys::{Error, JsString, Map, Object, Reflect};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::*;
 
+#[cfg(feature = "browser")]
+wasm_bindgen_test_configure!(run_in_browser);
+
 #[wasm_bindgen_test]
 fn load_file_succeeds() {
     let polar = polar_wasm_api::Polar::wasm_new();
