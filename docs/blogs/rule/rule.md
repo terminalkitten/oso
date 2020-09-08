@@ -4,218 +4,169 @@ Anatomy of a Rule
 Abstract
 --------
 The duality between code & data has exploitable consequences in the context
-of authorization rules. Sometimes a rule expresses a piece of data, such as
-who may do what to which resource. Sometimes a rule expresses logic, or code:
-this actor may do that to some resource *if* certain other conditions are
-also met. To handle complex authorization policies, a system must handle
-both points of view efficiently and naturally.
+of authorization rules. Sometimes a rule expresses a piece of data directly,
+such as who may do what to which resource. Other times a rule expresses logic,
+or code: this actor may do that to some resource *if* certain other conditions
+are also met, such as the actor or resource belonging to some model type. To
+handle complex authorization policies, a system should handle both points of
+view efficiently and naturally.
 
-Introduction
-------------
-An authorization policy specifies the requirements for authorization.
-Those requirements may be abstract; e.g., any user may see their own
-reports. This is authorization *logic*, and suggests a view of rules
-as *code*. But a policy may also be extremely concrete; e.g., Alice may
-see Bob's reports in addition to her own, but not Bhavik's. This is *data*
-about who may do what to which resources, and might not use any logical
-abstractions. It could be encoded as an ACL or a permissions matrix:
-
-```
-allow,alice,GET,/reports/alice/
-allow,alice,GET,/reports/bob/
-allow,bhavik,GET,/reports/bhavik/
-allow,bob,GET,/reports/bob/
-allow,marjory,GET,/reports/alice/
-allow,marjory,GET,/reports/bhavik/
-allow,marjory,GET,/reports/bob/
-allow,marjory,GET,/reports/marjory/
-```
-
-Here we've represented the matrix as CSV, but the encoding is irrelevant;
-this kind of authorization data is easily encoded in any authorization system,
-or handled directly by application code. But what happens when the matrix
-gets large? Application code then needs to worry about making lookups over
-large data sets fast to provide timely authorization. It may be able to
-offload that task to a database, but it can then be difficult to adapt the
-data to new authorization requirements. What if organizational structure
-changes, or new services are added — what happens when a new logging or
-auditing system needs access to every service? These kinds of schema
-migrations can be difficult and errror-prone, especially as the size of
-the policy grows.
-
-One way to manage this kind of complexity is to use abstraction to refactor
-the policy. Are there [roles] that can be factored out that reflect latent
-structure in the data, e.g., relations between the actors/actions/resources
-that the data represents? Perhaps there are common [attributes] of their
-representations that can be used to group authorization decisions. Finally,
-we can use [application domain models as types] to capture commonalities
-among sets of data, allowing us to organize and exploit these commonalities
-in type-directed code. These kinds of abstractions can enable immense
-compression of policy code, with corresponding advantages in efficiency and
-maintanability.
-
-Rules as data
+Rules as Data
 -------------
-But let's start with the data. Abstraction is well and good in the
-abstract, but in concrete authorization problems there's often just
-some big matrix of permissions to start with, like the one we showed
-above (but bigger). Perhaps it has been imported from an identity
-provider, or another authorization system. Such cases must be
-supported efficiently.
-
-So that we have a concrete example to work with, we'll encode the
-permissions matrix above into the oso rule language, Polar:
+An authorization policy specifies the requirements for authorization as *rules*.
+The rules may be in the form of permissions *data*, like an ACL: a (long) list
+of who can do what. In its simplest form, this may be only a few bits per rule,
+such as in traditional Unix file permissions. Or it may come in the form of a
+matrix like this one:
 
 ```
-allow("alice", "GET", "/reports/alice/");
-allow("alice", "GET", "/reports/bob/");
-allow("bhavik", "GET", "/reports/bhavik/");
-allow("bob", "GET", "/reports/bob/");
-allow("marjory", "GET", "/reports/alice/");
-allow("marjory", "GET", "/reports/bhavik/");
-allow("marjory", "GET", "/reports/bob/");
-allow("marjory", "GET", "/reports/marjory/");
+allow,alice,read,/reports/alice/
+allow,alice,read,/reports/bob/
+allow,bhavik,read,/reports/bhavik/
+allow,bob,read,/reports/bob/
+allow,marjory,read,/reports/alice/
+allow,marjory,read,/reports/bhavik/
+allow,marjory,read,/reports/bob/
+allow,marjory,read,/reports/marjory/
 ```
 
-This set of rule definitions is used by issuing a query like
-`allow(actor, action, resource)`, with each of the three arguments
-a string, presumably derived from the request being authorized.
-Authorization is performed by *matching* or *failing* to match
-a rule whose formal parameters (the stuff in parentheses) match
-the supplied arguments. For instance, the query
-`allow("alice", "GET", "/reports/bob/")`
-would successfully match the second rule, but
-`allow("alice", "GET", "/reports/bhavik/")`
-would not match any rules, and so would fail.
+This matrix encodes which users of a system may access what paths.
+Here we've chosen to represent the matrix as CSV, but the encoding
+is irrelevant; this kind of authorization data is easily encoded in
+any authorization system, or handled directly by application code.
 
-But we would like it to fail quickly, and if the list of rules
-is long, a linear scan over all of them could be quite slow.
-Databases use precomputed indices to support efficient queries
-over large data sets at the cost of slightly slower modifications;
-since policy changes are probably rare compared to authorization
-requests, that seems like a good tradeoff here.
+Another way to encode this kind of matrix is as a list of simple
+rule definitions, one per row:
 
-We have implemented indexing of constant data in Polar rules, and
-have seen it deliver very large speedups (multiple orders of magnitude)
-in authorization decisions for data-heavy policies. The speedups come
-from efficiently eliminating most or all rules from consideration
-up front with just a few hash lookups. We call it our *pre-filter*,
-since its job is to keep the "main" filter — the general rule selection
-and matching process we'll discuss shortly — from even considering
-most rules.
+```
+allow("alice", "read", "/reports/alice/");
+allow("alice", "read", "/reports/bob/");
+allow("bhavik", "read", "/reports/bhavik/");
+allow("bob", "read", "/reports/bob/");
+allow("marjory", "read", "/reports/alice/");
+allow("marjory", "read", "/reports/bhavik/");
+allow("marjory", "read", "/reports/bob/");
+allow("marjory", "read", "/reports/marjory/");
+```
 
-Rules with patterns
--------------------
-Indexing is one way to reduce the cost of matching a set of values against
-a large set of patterns. Another is to use a more expressive pattern language
-than "values match themselves". For example, regular expressions can
-concisely denote large sets of strings, and matching can be made reasonably
-efficient and convenient. And indeed, regular expressions are heavily used
-in authorization and access control languages for exactly these reasons.
+Here the encoding is the oso rule language, Polar, but again the encoding
+is not really germane. The point is just that what we previously thought
+of as data has now become code in a declarative programming language.
+It's not very interesting code, but it is simple and direct, and makes
+an easy target for translation from nearly anything else. We'll come back
+and make it more interesting shortly, but let's take it on its own terms
+for now.
 
-Strict regular expressions, of course, have their limits (viz.,
-regular languages). One common way of extending the base facility is
-with *binding*, whereby a given *name* (or *backreference*) may be bound
-to a portion of the matched data, and referred to elsewhere in the pattern
-by name. Binding seems to be an essential feature of effective pattern
-languages, since parts of a pattern are frequently referred to in other
-parts, often more than once or recursively.
+What happens as the permissions matrix grows in size? Even with naive
+algorithms, a small matrix should pose no performance problem. But as
+with any other type of data, the tools needed to cope with it vary as
+the data grows. If the list is very large or if frequent dynamic updates
+are required, some kind of database is going to be most appropriate.
+But for a moderately sized, mostly-read-only but data-intensive policy,
+an authorization system ought to be able to handle the job itself.
+
+To handle largish data-heavy policies with Polar, we implemented a simple
+indexing scheme over constant data. We have seen it deliver very large
+speedups (multiple orders of magnitude) in authorization decisions on
+certain (realistic) policies. The speedups come from eliminating most
+or all rules from consideration up front with just a few hash lookups.
+We call it the *pre-filter*, since its job is to keep the "main" filter —
+the general rule selection and matching process we'll discuss shortly —
+from even considering most rules. It is able to do its job by considering
+the parts of rules purely as data, while still respecting the semantics
+of the rules as code.
 
 Rules as code
 -------------
-And so another strategy for expressing patterns of data in rules is to
-use a language with named *variables* that may be bound to data *values*,
-and to specify *conditions* over those variables using logical expressions.
-Classical examples include Prolog (which of course Polar is a dialect of),
-which uses [unification] as its basic matching operation. Unification
-is a binding operator if either argument is an unbound variable, and an
-*equality* operator when both are bound; hence it is indicated by `=`.
-Together with instances created with a `new` operator and attribute
-access via the `.` operator, we can express rules like this:
+For complex authorization policies, a pure "policy as data" strategy is
+simply not viable [citation needed]. But data used to make authorization
+decisions is never random, and so almost always has exploitable structure.
+As usual in technology, we can exploit that structure through *abstraction*.
+
+Let's look again at our simple permissions matrix. One simple pattern
+that should be evident is captured by the informal rule "everyone may
+read their own reports". We can capture this formally in Polar as:
 
 ```
-allow(actor, "GET", resource) if
-    new PathMapper("/reports/{actor}/").map(resource).actor = actor;
+allow(actor: String, "read", resource: String) if
+    resource.split("/") = ["", "reports", actor, ""];
 ```
 
-This rule says that any actor may get their own reports, for appropriately
-structured resource paths. Rules like this must be *filtered* by
-applicability to a given set of arguments by *checking* that the
-arguments fulfill all of the conditions specified by the rule.
-
-Let's see how this works. Suppose the query is
-`allow("alice", "GET", "/reports/alice/")`.
-Matching the parameters with the arguments by unification, `actor`
-is first bound to the string `"alice"`, the string `"GET"` unifies
-with the string `"GET"` by equality, and the resource is bound to
-`"/reports/alice"`. The body (the part after the `if`) then
-destructures the value of `resource` and unifies the second
-component of that path with the value of `actor`. In this case that
-unification succeeds, and the query is successful. But if the resource
-were `"/reports/bhavik/"`, the unification would not succeed, and
-the rule would fail to match; that special case would need to be
-encoded separately. Nevertheless, this single logical rule potentially
-replaces infinitely many data rules; we do not need to specify exactly
-who may access their own reports if we know that everyone may.
-
-Another way to concisely denote large or infinite sets of objects
-is with *types* or *classes*. Your application may already have a
-`User` class that represents your users; let's suppose you also have
-a `Resource` class with an `owner` field. Leveraging those gets us
-rules like:
+This rule is universally quantified over all string-valued actors and
+resources, and so replaces a potentially infinite set of data rules.
+If we wish to quantify over more specific classes of actors and resources
+(e.g., from our application), we can refine the type restrictions:
 
 ```
-allow(actor: User, "GET", resource: Resource) if
-    resource.owner = actor;
+allow(actor: Reporter, "read", resource: Report) if
+    resource.path.split("/") = ["", "reports", actor, ""];
 ```
 
-This rule says that any user may get any resource that they own.
-These kinds of rules are most powerful in conjunction with others
-that specialize on more or less specific types; e.g., we might
-augment the above with:
+This allows extremely fine-grained decisions without a large blowup in
+policy size. It is also easy to add additional semantics:
 
 ```
-allow(actor: Auditor, "GET", resource: Resource) if not resource.privileged;
-allow(actor: AdminUser, action, resource: Resource);
-allow(actor: SpecialUser, action, resource: SpecialResource);
-allow(actor: BannedUser, action, resource) if cut and false;
+allow(actor: Reporter, "read", resource: Report) if
+    resource.author = actor;
 ```
 
-To support *exceptions* and *overrides*, both of which are common in
-complex authorization policies, it is essential to specify the *order*
-in which multiple matching rules are applied. For instance, we would
-want the last rule, which always fails and considers no other rules,
-to be applicable *first* for actors of the `BannedUser` class, no matter
-which other rules match, e.g., via superclasses of that class; we would
-not want to accidentally grant access to a user that has been banned.
+These kinds of rules behave very differently than the data rules we saw
+earlier. They may have data embedded in them (e.g., the `"read"` action,
+the `"reports"` path segment), but they are inherently *code*. These rules
+are *executed* or *called* with a list of arguments as part of an
+authorization query, not just *matched* as data. They may contain arbitrary
+logical expressions, which are encoded here as Horn clauses, but once again
+the encoding is inessential — the essential feature is the *interpretation*
+process, where the rules are treated as meaning-bearing expressions of a
+logical language rather than opaque or "quoted" data. Types or classes
+in such a language denote structured sets of data, semantically related
+through subtyping. Decades of software development has shown that these
+kinds of abstractions can enable immense compression of complex code,
+with corresponding advantages in efficiency and maintainability.
 
-To support such semantics, we can either supply the rule ordering as
-additional code, or rely on an automatic system that uses the relations
-among the types of the parameters to automatically order the rules.
-In Polar we use the latter strategy; the ordering is always most-to-least
-specific with respect to the given arguments, in left-to-right order.
+Nothing comes for free, of course. The cost of abstraction in authorization
+is really no different than its cost anywhere else:
 
-A final observation brings us back to data. Specificity of types is
-determined by subtyping, and since subtyping relations are defined by
-the application model, they are, from the point of view of the rules,
-*data about (types of) data*. E.g., with respect to a particular instance
-of `BannedUser`, say, the above set of rules can't be properly sorted
-until we know whether a `BannedUser` is more or less specific than an
-ordinary `User`. Their names hint at an answer, but only the class definitions
-or their runtime representations provide a canonical answer. This situation
-makes the sorting process interesting and challenging, but the details must
-be left for another time.
+1. The abstractions may be inappropriate for the data.
+2. As the structure of the data changes, the abstractions must be adjusted to match.
+3. The abstraction itself may be expensive in time or space.
+
+The first two need no further commentary; code has bugs, requirements
+change. The third is an implementation issue, and leads to many interesting
+sub-problems.
+
+In the case of Polar, for instance, the use of type restrictions for rule
+parameters leads to the notions of rule *applicability* and *sorting*.
+For a given set of arguments, only rules whose parameters *match* the
+corresponding arguments — in structure, type, or both — have their bodies
+executed. Rules that do not match need not be considered, and so are
+*filtered* out as part of the calling sequence.
+
+After the applicable rules have been selected, we must then decide in what
+order to execute them. Sometimes it doesn't matter, but in the presence of
+exceptions and overrides for specific classes, it can. Polar therefore
+*sorts* the applicable rules by specificity, and executes the most specific
+rule first. This allows more specific rules to selectively override less
+specific ones, which can be a source of considerable expressive power when
+you need it.
+
+This filtering and sorting process is relatively slow compared to an index
+lookup. This is what makes the pre-filter so effective in speeding up
+certain kinds of policies; the fewer rules that need to be selected for
+applicability and sorted, the faster the call sequence executes. But in
+exchange for a somewhat expensive calling sequence, we can further leverage
+available abstractions over our data, namely the types in our model,
+with very little code.
 
 Rules Redux
 -----------
-And so we see that even highly abstracted as code, rules are inherently
-tied to the data over which they operate. They retain its essential
-structure, and reflect its origins in representing sets of related
-objects: the actors, actions, and resources that the policy is about.
+We have now seen authorization rules from two points of view.
+Viewed as code, rules are interpreted or run, and so have an essentially
+dynamic character. Viewed as data, they may be indexed ahead of time,
+thus exploiting their static characteristics. So which is it? Are
+rules code or data, fish or fowl?
 
-Viewed as code, rules are subject to interpretation, which must be
-reasonably fast but must also respect application semantics. Viewed as
-data, they are subject to query, which must also be reasonably fast even
-over large data sets. Realistic policies, of course, contain arbitrary
-mixtures of the two, suggesting that any authorization system that wishes
-to handle them efficiently must therefore support both points of view.
+The answer of course, is both: code and data are dual, and no one
+point of view is primary. But switching points of view can sometimes
+lead us to opportunities for optimization that may be hard to see
+from the other.
