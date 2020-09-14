@@ -357,3 +357,39 @@ fn test_macros() {
 
     test.qvar_one(r#"new Baz().world() = x"#, "x", "goodbye world".to_string());
 }
+
+#[test]
+fn test_results() {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    #[derive(PolarClass)]
+    struct Foo;
+
+    impl Foo {
+        fn new() -> Self {
+            Self
+        }
+
+        fn good_result_int(&self) -> Result<i32, String> {
+            Ok(1)
+        }
+
+        fn bad_result_int(&self) -> Result<i32, &'static str> {
+            Err("Some sort of error")
+        }
+    }
+
+    let mut test = OsoTest::new();
+    test.oso
+        .register_class(
+            Foo::get_polar_class_builder()
+                .set_constructor(Foo::new)
+                .add_result_method("ok", |recv: &Foo| recv.good_result_int())
+                .add_result_method("err", |recv: &Foo| recv.bad_result_int())
+                .build(),
+        )
+        .unwrap();
+
+    test.qvar_one(r#"new Foo().ok() = x"#, "x", 1);
+    test.query_err("new Foo().err()");
+}
