@@ -3105,7 +3105,9 @@ mod tests {
                     // Return `true` if the specified `class_tag` is `"a"`.
                     vm.external_question_result(call_id, class_tag.0 == "a")
                 }
-                QueryEvent::ExternalIsSubSpecializer { .. } | QueryEvent::Result { .. } => (),
+                QueryEvent::ExternalIsSubSpecializer { .. }
+                | QueryEvent::ExternalUnify { .. }
+                | QueryEvent::Result { .. } => (),
                 _ => panic!("Unexpected event"),
             }
         }

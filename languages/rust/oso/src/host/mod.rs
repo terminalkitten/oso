@@ -130,12 +130,11 @@ impl Host {
         Ok(())
     }
 
-    pub fn unify(&self, left: u64, right: u64) -> crate::Result<bool> {
+    pub fn unify(&self, left: Term, right: Term) -> crate::Result<bool> {
         tracing::trace!("unify {:?}, {:?}", left, right);
-
-        let left = self.get_instance(left).unwrap();
-        let right = self.get_instance(right).unwrap();
-        left.equals(right, &self)
+        let left = Instance::from_polar(&left, &self)?;
+        let right = Instance::from_polar(&right, &self)?;
+        left.equals(&right, &self)
     }
 
     pub fn isa(&self, term: Term, class_tag: &Symbol) -> crate::Result<bool> {
