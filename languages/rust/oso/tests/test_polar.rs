@@ -358,50 +358,50 @@ fn test_macros() {
     test.qvar_one(r#"new Baz().world() = x"#, "x", "goodbye world".to_string());
 }
 
-#[test]
-fn test_results_and_options() {
-    let _ = tracing_subscriber::fmt::try_init();
+// #[test]
+// fn test_results_and_options() {
+//     let _ = tracing_subscriber::fmt::try_init();
 
-    #[derive(PolarClass)]
-    struct Foo;
+//     #[derive(PolarClass)]
+//     struct Foo;
 
-    impl Foo {
-        fn new() -> Self {
-            Self
-        }
+//     impl Foo {
+//         fn new() -> Self {
+//             Self
+//         }
 
-        fn ok(&self) -> Result<i32, String> {
-            Ok(1)
-        }
+//         fn ok(&self) -> Result<i32, String> {
+//             Ok(1)
+//         }
 
-        fn err(&self) -> Result<i32, &'static str> {
-            Err("Some sort of error")
-        }
+//         fn err(&self) -> Result<i32, &'static str> {
+//             Err("Some sort of error")
+//         }
 
-        fn some(&self) -> Option<i32> {
-            Some(1)
-        }
+//         fn some(&self) -> Option<i32> {
+//             Some(1)
+//         }
 
-        fn none(&self) -> Option<i32> {
-            None
-        }
-    }
+//         fn none(&self) -> Option<i32> {
+//             None
+//         }
+//     }
 
-    let mut test = OsoTest::new();
-    test.oso
-        .register_class(
-            Foo::get_polar_class_builder()
-                .set_constructor(Foo::new)
-                .add_result_method("ok", |recv: &Foo| recv.ok())
-                .add_result_method("err", |recv: &Foo| recv.err())
-                .add_option_method("some", |recv: &Foo| recv.some())
-                .add_option_method("none", |recv: &Foo| recv.none())
-                .build(),
-        )
-        .unwrap();
+//     let mut test = OsoTest::new();
+//     test.oso
+//         .register_class(
+//             Foo::get_polar_class_builder()
+//                 .set_constructor(Foo::new)
+//                 .add_result_method("ok", |recv: &Foo| recv.ok())
+//                 .add_result_method("err", |recv: &Foo| recv.err())
+//                 .add_option_method("some", |recv: &Foo| recv.some())
+//                 .add_option_method("none", |recv: &Foo| recv.none())
+//                 .build(),
+//         )
+//         .unwrap();
 
-    test.qvar_one(r#"new Foo().ok() = x"#, "x", 1);
-    test.query_err("new Foo().err()");
-    test.qvar_one(r#"new Foo().some() = x"#, "x", 1);
-    test.query_err("new Foo().none()");
-}
+//     test.qvar_one(r#"new Foo().ok() = x"#, "x", 1);
+//     test.query_err("new Foo().err()");
+//     test.qvar_one(r#"new Foo().some() = x"#, "x", 1);
+//     test.query_err("new Foo().none()");
+// }
