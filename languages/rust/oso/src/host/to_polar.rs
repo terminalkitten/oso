@@ -176,9 +176,9 @@ impl<C: ToPolarIter> ToPolarIter for Option<C> {
 impl<C, I> ToPolarIter for I
 where
     C: ToPolarIter,
-    I: Iterator<Item = C> + Clone,
+    I: Iterator<Item = C>,
 {
     fn to_polar_iter(&self) -> PolarIter {
-        self.map(|e| e.to_polar_iter()).flatten()
+        self.flat_map(|e| e.to_polar_iter())
     }
 }
