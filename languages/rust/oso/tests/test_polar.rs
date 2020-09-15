@@ -177,7 +177,7 @@ fn test_external() {
         }
 
         #[allow(dead_code)]
-        fn b(&self) -> impl Iterator<Item = &'static str> + Clone {
+        fn b(&self) -> impl Iterator<Item = &'static str> {
             vec!["b"].into_iter()
         }
 
@@ -216,7 +216,7 @@ fn test_external() {
     let foo_class = oso::Class::with_constructor(capital_foo)
         .name("Foo")
         .add_attribute_getter("a", |receiver: &Foo| receiver.a)
-        // .add_method("b", |receiver: &Foo| oso::host::PolarIter(receiver.b()))
+        .add_method("b", |receiver: &Foo| receiver.b())
         .add_class_method("c", Foo::c)
         .add_method::<_, _, u32>("d", Foo::d)
         .add_method("e", Foo::e)
@@ -229,7 +229,7 @@ fn test_external() {
     test.qvar_one("new Foo().a = x", "x", "A".to_string());
     test.query_err("new Foo().a() = x");
 
-    // test.query_err("new Foo().b = x");
+    test.query_err("new Foo().b = x");
     // test.qvar_one("new Foo().b() = x", "x", vec!["b".to_string()]);
 
     test.qvar_one("Foo.c() = x", "x", "c".to_string());
