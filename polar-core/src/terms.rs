@@ -373,9 +373,10 @@ impl Term {
             }
         }
 
-        impl<'term, 'set> Visitor<'term> for VariableVisitor<'set> {
-            fn visit_variable(&mut self, v: &'term Symbol) {
+        impl<'set> Visitor for VariableVisitor<'set> {
+            fn visit_variable(&mut self, v: &Symbol) -> Option<Symbol> {
                 self.vars.insert(v.clone());
+                None
             }
         }
 

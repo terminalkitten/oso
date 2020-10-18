@@ -20,6 +20,30 @@ impl<'kb> Renamer<'kb> {
     }
 }
 
+impl<'kb> crate::walker::Visitor for Renamer<'kb> {
+    fn visit_variable(&mut self, v: &Symbol) -> Option<Symbol> {
+        if self.kb.is_constant(&v) {
+            None
+        } else if let Some(w) = self.renames.get(&v) {
+            Some(w.clone())
+        } else {
+            let w = self.kb.gensym(&v.0);
+            self.renames.insert(v.clone(), w.clone());
+            Some(w)
+        }
+    }
+
+    fn visit_rest_variable(&mut self, r: &Symbol) -> Option<Symbol> {
+        if let Some(s) = self.renames.get(&r) {
+            Some(s.clone())
+        } else {
+            let s = self.kb.gensym(&r.0);
+            self.renames.insert(r.clone(), s.clone());
+            Some(s)
+        }
+    }
+}
+
 impl<'kb> Folder for Renamer<'kb> {
     fn fold_variable(&mut self, v: Symbol) -> Symbol {
         if self.kb.is_constant(&v) {
@@ -87,11 +111,7 @@ impl<'kb> Folder for Rewriter<'kb> {
                 args: terms.into_iter().chain(rewrites).collect(),
             }));
         }
-        Rule {
-            name,
-            body,
-            params,
-        }
+        Rule { name, body, params }
     }
 
     /// Rewrite an expression as a temp, and push a rewritten

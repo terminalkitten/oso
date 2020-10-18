@@ -91,8 +91,8 @@ impl<'kb> SingletonVisitor<'kb> {
     }
 }
 
-impl<'term, 'kb> Visitor<'term> for SingletonVisitor<'kb> {
-    fn visit_term(&mut self, t: &'term Term) {
+impl<'kb> Visitor for SingletonVisitor<'kb> {
+    fn visit_term(&mut self, t: &Term) -> Option<Term> {
         match t.value() {
             Value::Variable(v)
             | Value::RestVariable(v)
@@ -107,6 +107,7 @@ impl<'term, 'kb> Visitor<'term> for SingletonVisitor<'kb> {
                         v.insert(Some(t.clone()));
                     }
                 }
+                None
             }
             _ => walk_term(self, t),
         }

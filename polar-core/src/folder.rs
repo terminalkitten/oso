@@ -4,6 +4,8 @@ use super::partial::Constraints;
 use super::rules::*;
 use super::terms::*;
 
+use crate::walker::*;
+
 pub trait Folder: Sized {
     fn fold_rule(&mut self, r: Rule) -> Rule {
         fold_rule(r, self)
@@ -232,6 +234,36 @@ pub fn fold_params<T: Folder>(params: Vec<Parameter>, fld: &mut T) -> Vec<Parame
         .into_iter()
         .map(|t| fld.fold_param(t))
         .collect::<Vec<Parameter>>()
+}
+
+pub struct FoldingVisitor<V> {
+    visitor: V,
+}
+
+impl<V> FoldingVisitor<V> {
+    pub fn new(visitor: V) -> Self {
+        Self { visitor }
+    }
+}
+
+impl<V> Folder for FoldingVisitor<V>
+where
+    V: Visitor,
+{
+    fn fold_rule(&mut self, r: Rule) -> Rule {
+        self.visitor.visit_rule(&r).unwrap_or_else(|| r)
+    }
+
+    fn fold_name(&mut self, name: Symbol) -> Symbol {
+        self.visitor.visit_name(&name).unwrap_or_else(|| name)
+    }
+    fn fold_params(&mut self, params: Vec<Parameter>) -> Vec<Parameter> {
+        self.visitor.visit_params(&params).unwrap_or_else(|| params)
+    }
+
+    fn fold_term(&mut self, t: Term) -> Term {
+        self.visitor.visit_term(&t).unwrap_or_else(|| t)
+    }
 }
 
 #[cfg(test)]

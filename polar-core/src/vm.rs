@@ -648,7 +648,7 @@ impl PolarVirtualMachine {
     /// Generate a fresh set of variables for a rule.
     fn rename_rule_vars(&self, rule: &Rule) -> Rule {
         let kb = &*self.kb.read().unwrap();
-        let mut renamer = Renamer::new(&kb);
+        let mut renamer = crate::folder::FoldingVisitor::new(Renamer::new(&kb));
         renamer.fold_rule(rule.clone())
     }
 
