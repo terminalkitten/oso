@@ -23,6 +23,7 @@ mod runnable;
 mod sources;
 pub mod terms;
 pub mod traces;
-mod vm;
+#[macro_use]
 mod walker;
+mod vm;
 mod warnings;

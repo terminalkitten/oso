@@ -589,23 +589,20 @@ impl PolarVirtualMachine {
             }
         }
 
-        impl<'vm> Folder for Derefer<'vm> {
-            fn fold_term(&mut self, t: Term) -> Term {
-                match t.value() {
-                    Value::List(_) | Value::Variable(_) | Value::RestVariable(_) => {
-                        fold_term(self.vm.deref(&t), self)
-                    }
-                    _ => fold_term(t, self),
+        impl<'vm> crate::walker::Visitor for Derefer<'vm> {
+            fn visit_term(&mut self, t: &Term) -> Option<Term> {
+                if let Some(t) = self.vm.deref_top_level(t) {
+                    crate::walker::walk_term(self, &t).or_else(|| Some(t))
+                } else {
+                    crate::walker::walk_term(self, &t)
                 }
             }
         }
 
-        Derefer::new(self).fold_term(term.clone())
+        crate::folder::FoldingVisitor::new(Derefer::new(self)).fold_term(term.clone())
     }
 
-    /// Recursively dereference a variable, but do not descend into (most) subterms.
-    /// The exception is for lists, so that we can correctly handle rest variables.
-    pub fn deref(&self, term: &Term) -> Term {
+    fn deref_top_level(&self, term: &Term) -> Option<Term> {
         match &term.value() {
             Value::List(list) => {
                 let ends_with_rest = list
@@ -613,31 +610,43 @@ impl PolarVirtualMachine {
                     .map_or(false, |el| matches!(el.value(), Value::RestVariable(_)));
 
                 // Deref all elements.
-                let mut derefed: Vec<Term> = list.iter().map(|t| self.deref(t)).collect();
+                let derefed: Option<Vec<Term>> = walk_elements!(self, deref_top_level, list);
 
                 // If last element was a rest variable, append the list it derefed to.
-                if ends_with_rest {
-                    if let Some(last_term) = derefed.pop() {
-                        if let Value::List(terms) = last_term.value() {
-                            derefed.append(&mut terms.clone());
-                        } else {
-                            derefed.push(last_term);
+                match (&derefed, ends_with_rest) {
+                    (None, false) => None,
+                    _ => {
+                        let mut derefed = derefed.unwrap_or_else(|| list.clone());
+                        if ends_with_rest {
+                            if let Some(last_term) = derefed.pop() {
+                                if let Value::List(terms) = last_term.value() {
+                                    derefed.append(&mut terms.clone());
+                                } else {
+                                    derefed.push(last_term);
+                                }
+                            }
                         }
+
+                        Some(term.clone_with_value(Value::List(derefed)))
                     }
                 }
-
-                term.clone_with_value(Value::List(derefed))
             }
             Value::Variable(symbol) | Value::RestVariable(symbol) => {
                 if let Some(value) = self.value(&symbol) {
                     if value != term {
-                        return self.deref(value);
+                        return Some(self.deref(&value));
                     }
                 }
-                term.clone()
+                None
             }
-            _ => term.clone(),
+            _ => None,
         }
+    }
+
+    /// Recursively dereference a variable, but do not descend into (most) subterms.
+    /// The exception is for lists, so that we can correctly handle rest variables.
+    pub fn deref(&self, term: &Term) -> Term {
+        self.deref_top_level(term).unwrap_or_else(|| term.clone())
     }
 
     /// Return `true` if `var` is a temporary variable.
