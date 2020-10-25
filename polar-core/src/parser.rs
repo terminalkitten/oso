@@ -79,6 +79,7 @@ pub fn parse_rules(src_id: u64, src: &str) -> PolarResult<Vec<Rule>> {
 mod tests {
     use super::*;
     use crate::formatting::ToPolarString;
+    use crate::partial::Constraints;
     use pretty_assertions::assert_eq;
 
     #[track_caller]
@@ -329,6 +330,18 @@ mod tests {
         assert_eq!(
             parse_query(q),
             term!(op!(Dot, term!(sym!("x")), term!("invalid-key"))),
+        );
+    }
+
+    #[test]
+    fn parse_partial() {
+        let q = "∂x";
+        assert_eq!(
+            parse_query(q),
+            term!(Value::Partial(Constraints {
+                variable: sym!("x"),
+                operations: vec![],
+            }))
         );
     }
 }

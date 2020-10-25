@@ -73,6 +73,7 @@ pub enum Token {
     Gt,    // >
     Unify, // =
     Assign,
+    Partial,   // ∂
     Pipe,      // |
     SemiColon, // ;
     Query,     // ?=
@@ -122,6 +123,7 @@ impl ToString for Token {
             Token::Gt => ">".to_owned(),            // >
             Token::Unify => "=".to_owned(),         // =
             Token::Assign => ":=".to_owned(),       // :=
+            Token::Partial => "∂".to_owned(),     // ∂
             Token::Pipe => "|".to_owned(),          // |
             Token::SemiColon => ";".to_owned(),     // ;
             Token::Query => "?=".to_owned(),        // ?=
@@ -451,9 +453,6 @@ impl<'input> Iterator for Lexer<'input> {
         match self.c {
             None => None,
             Some((i, char)) => match char {
-                x if x == '_' || (!x.is_ascii_punctuation() && !x.is_ascii_digit()) => {
-                    self.scan_symbol(i, char)
-                }
                 '"' => self.scan_string(i),
                 '0'..='9' => self.scan_number(i, char),
                 ':' => self.scan_1c_or_2c_op(i, Token::Colon, '=', Token::Assign),
@@ -462,6 +461,7 @@ impl<'input> Iterator for Lexer<'input> {
                 '>' => self.scan_1c_or_2c_op(i, Token::Gt, '=', Token::Geq),
                 '!' => self.scan_1c_or_2c_op(i, Token::Bang, '=', Token::Neq),
                 '?' => self.scan_2c_op(i, '=', Token::Query),
+                '∂' => self.scan_1c_op(i, Token::Partial),
                 '|' => self.scan_1c_op(i, Token::Pipe),
                 ',' => self.scan_1c_op(i, Token::Comma),
                 '[' => self.scan_1c_op(i, Token::LB),
@@ -476,6 +476,7 @@ impl<'input> Iterator for Lexer<'input> {
                 '*' => self.scan_1c_op(i, Token::Mul),
                 '/' => self.scan_1c_op(i, Token::Div),
                 ';' => self.scan_1c_op(i, Token::SemiColon),
+                x if x == '_' || !x.is_ascii_punctuation() => self.scan_symbol(i, char),
                 _ => Some(Err(ParseError::InvalidTokenCharacter {
                     token: "".to_owned(),
                     c: char,

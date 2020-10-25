@@ -7,6 +7,7 @@ use std::collections::{HashMap, BTreeMap};
 
 use crate::lexer::{self, Token};
 use crate::parser::Line;
+use crate::partial::Constraints;
 use crate::error;
 use crate::terms::*;
 use crate::rules::*;
@@ -52,6 +53,7 @@ extern {
         ">" => lexer::Token::Gt,            // >
         "=" => lexer::Token::Unify,         // =
         ":=" => lexer::Token::Assign,       // :=
+        "∂" => lexer::Token::Partial,       // ∂
         "|" => lexer::Token::Pipe,          // |
         ";" => lexer::Token::SemiColon,     // ;
         "?=" => lexer::Token::Query,        // ?=
@@ -99,6 +101,10 @@ Boolean: Value = <b:"Boolean"> => {
 };
 
 Name: Symbol = <s:"Symbol"> => s;
+
+Partial: Value = "∂" <n:Name> => {
+    Value::Partial(Constraints::new(n))
+};
 
 Variable: Value  = <n:Name> => {
     Value::Variable(n)
@@ -479,6 +485,7 @@ pub Value: Value = {
     <Number>,
     <PolarString>,
     <Boolean>,
+    <Partial>,
     <Variable>,
     <DictionaryTerm>,
     <BuiltinOperation>,
