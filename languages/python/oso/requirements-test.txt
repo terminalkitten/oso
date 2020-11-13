@@ -4,3 +4,6 @@ dataclasses ; python_version < '3.7'
 # Needed for flask, jwt extras
 authlib
 flask
+
+# needed for test runne
+pyyaml
