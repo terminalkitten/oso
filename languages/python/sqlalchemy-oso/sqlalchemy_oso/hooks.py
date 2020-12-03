@@ -91,7 +91,7 @@ def authorize_query(query: Query, get_oso, get_user, get_action) -> Query:
     return query
 
 
-def make_authorized_query_cls(get_oso, get_user, get_action) -> Query:
+def make_authorized_query_cls(get_oso, get_user, get_action):
     class AuthorizedQuery(Query):
         """Query object that always applies authorization for ORM entities."""
 

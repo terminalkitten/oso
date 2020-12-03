@@ -107,7 +107,7 @@ def translate_in(expression, session, model):
         )
 
 
-def translate_dot(path: Tuple[str], session: Session, model, func: EmitFunction):
+def translate_dot(path: Tuple[str, ...], session: Session, model, func: EmitFunction):
     if len(path) == 0:
         return func(session, model)
     else:
