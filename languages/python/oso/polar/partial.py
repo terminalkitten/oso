@@ -59,6 +59,10 @@ class TypeConstraint(Constraint):
         }
 
 
+class InConstraint(Constraint):
+    pass
+
+
 def dot_path(expr):
     """Get the path components of a (potentially nested) dot lookup. The path
     is returned as a tuple. The empty tuple is returned if input is not a dot

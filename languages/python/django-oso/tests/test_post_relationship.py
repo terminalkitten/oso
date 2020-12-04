@@ -453,13 +453,14 @@ def test_partial_in_collection(tag_nested_many_many_fixtures):
     Oso.load_str(
         """
             allow(user: test_app2::User, "read", post: test_app2::Post) if
-                post in user.posts.all();
+                post in user.posts;
         """
     )
 
     user = User.objects.get(username="user")
     authorize_filter = authorize_model(None, Post, actor=user, action="read")
     posts = Post.objects.filter(authorize_filter)
+    breakpoint()
     assert tag_nested_many_many_fixtures["user_eng_post"] in posts
     assert tag_nested_many_many_fixtures["user_user_post"] in posts
     assert tag_nested_many_many_fixtures["random_post"] not in posts

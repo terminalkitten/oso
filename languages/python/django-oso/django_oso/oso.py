@@ -3,9 +3,12 @@ import os.path
 
 from django.apps import apps
 from django.http import HttpRequest
+from django.db.models.manager import Manager
+
 
 from oso import Oso as _Oso
 from polar.exceptions import DuplicateClassAliasError
+from polar.partial import Partial
 
 
 _logger = logging.getLogger(__name__)
@@ -28,6 +31,12 @@ def django_model_name(polar_name: str):
 
 
 def init_oso():
+    def manager_to_partial(maybe_manager):
+        if isinstance(maybe_manager, Manager):
+            return Partial("herbert")
+
+    Oso.host.to_polar_hooks.append(manager_to_partial)
+
     def register_class(model, name=None):
         try:
             Oso.register_class(model, name=name)
