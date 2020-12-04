@@ -1529,16 +1529,27 @@ impl PolarVirtualMachine {
                     }
                     Value::Partial(partial) => {
                         let mut partial = partial.clone();
-                        if matches!(item.value(), Value::Variable(_) | Value::Partial(_)) {
-                            let item_partial = partial.in_unbound(item);
-                            self.bind(
-                                &item_partial.value().as_partial().unwrap().name().clone(),
-                                item_partial,
-                            );
-                            self.bind(partial.name(), partial.clone().into_term());
-                        } else {
-                            partial.in_contains(item);
-                            self.bind(&partial.name().clone(), partial.into_term());
+                        match item.value() {
+                            Value::Variable(_) => {
+                                let item_partial = partial.in_unbound(item);
+                                self.bind(
+                                    &item_partial.value().as_partial().unwrap().name().clone(),
+                                    item_partial,
+                                );
+                                self.bind(partial.name(), partial.clone().into_term());
+                            }
+                            Value::Partial(_) => {
+                                let item_partial = partial.in_partial(&item);
+                                self.bind(
+                                    &item_partial.value().as_partial().unwrap().name().clone(),
+                                    item_partial,
+                                );
+                                self.bind(partial.name(), partial.clone().into_term());
+                            }
+                            _ => {
+                                partial.in_contains(item);
+                                self.bind(&partial.name().clone(), partial.into_term());
+                            }
                         }
                     }
                     _ => {
@@ -2690,14 +2701,14 @@ impl Runnable for PolarVirtualMachine {
         if let Some(value) = term {
             self.log_with(|| format!("=> {}", value.to_string()), &[]);
 
-            self.bind(
-                &self
-                    .call_id_symbols
-                    .get(&call_id)
-                    .expect("unregistered external call ID")
-                    .clone(),
-                value,
-            );
+            let var = &self
+                .call_id_symbols
+                .get(&call_id)
+                .expect("unregistered external call ID")
+                .clone();
+            eprintln!("VAR!!!!!!!!!!!!!!!!!!!!!!!!!! {}", var);
+
+            self.bind(var, value);
         } else {
             self.log("=> No more results.", &[]);
 

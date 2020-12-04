@@ -128,7 +128,7 @@ class Host:
 
     def to_polar_hook(self, v):
         for fn in self.to_polar_hooks:
-            x = fn(v)
+            x = fn(v, self)
             if x:
                 return self.to_polar(x)
 

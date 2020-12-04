@@ -59,8 +59,25 @@ class TypeConstraint(Constraint):
         }
 
 
-class InConstraint(Constraint):
-    pass
+class UnifyConstraint(Constraint):
+    def __init__(self, polar_instance):
+        self.polar_instance = polar_instance
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, type(self))
+            and self.polar_instance == other.polar_instance
+        )
+
+    def to_polar(self):
+        return {
+            "operator": "Unify",
+            "args": [
+                # TODO(gj): what about _this.x.y in collection?
+                {"value": {"Variable": "_this"}},
+                self.polar_instance,
+            ],
+        }
 
 
 def dot_path(expr):
