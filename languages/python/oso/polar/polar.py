@@ -6,6 +6,13 @@ from pathlib import Path
 import sys
 from typing import Dict
 
+try:
+    # importing readline on compatible platforms
+    # changes how `input` works for the REPL
+    import readline  # noqa: F401
+except ImportError:
+    pass
+
 from .exceptions import (
     PolarRuntimeError,
     InlineQueryFailedError,
@@ -184,6 +191,13 @@ class Polar:
     def register_constant(self, value, name):
         """Register `value` as a Polar constant variable called `name`."""
         self.ffi_polar.register_constant(self.host.to_polar(value), name)
+
+    def get_class(self, name):
+        """Return class registered for ``name``.
+
+        :raises UnregisteredClassError: If the class is not registered.
+        """
+        return self.host.get_class(name)
 
 
 def polar_class(_cls=None, *, name=None):
