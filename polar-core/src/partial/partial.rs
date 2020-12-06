@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::formatting::ToPolarString;
 use crate::runnable::Runnable;
 use crate::terms::{
     Dictionary, InstanceLiteral, Operation, Operator, Pattern, Symbol, Term, Value,
@@ -192,48 +191,14 @@ impl Partial {
         };
 
         let in_op = op!(In, term!(name.clone()), self.variable_term());
-        // eprintln!("ADDING IN_OP: {}", in_op.to_polar());
         self.add_constraint(in_op);
-        // dbg!(&self);
 
         Term::new_temporary(Value::Partial(Partial::new(name)))
-
-        // Term::new_temporary(Value::Partial(match other.value() {
-        //     Value::Partial(p) => p.clone(),
-        //     Value::Variable(_) => Partial::new(name),
-        //     _ => unreachable!(),
-        // }))
     }
 
-    pub fn in_partial(&mut self, other: &Term) -> Term {
-        // let other_partial = other.value().as_partial().unwrap()
-        // let name = match other.value() {
-        //     Value::Partial(constraints) => constraints.name().clone(),
-        //     _ => panic!(
-        //         "Unexpected in LHS value {:?}, maybe you meant to call Constraints::contains()",
-        //         other.value()
-        //     ),
-        // };
-
-        eprintln!(
-            "SELF: {}",
-            Term::new_temporary(Value::Partial(self.clone())).to_polar()
-        );
-        eprintln!("OTHER: {}", other.to_polar());
-
-        let in_op = op!(In, self.variable_term(), term!(self.variable.clone()));
-        // eprintln!("ADDING IN_OP: {}", in_op.to_polar());
-        let mut new = other.value().as_partial().unwrap().clone();
-        new.add_constraint(in_op);
-        // dbg!(&self);
-
-        Term::new_temporary(Value::Partial(new))
-
-        // Term::new_temporary(Value::Partial(match other.value() {
-        //     Value::Partial(p) => p.clone(),
-        //     Value::Variable(_) => Partial::new(name),
-        //     _ => unreachable!(),
-        // }))
+    pub fn in_partial(&mut self, other: Partial) {
+        let in_op = op!(In, self.variable_term(), term!(other.variable));
+        self.add_constraint(in_op);
     }
 
     pub fn compare(&mut self, operator: Operator, operand: Operand) {

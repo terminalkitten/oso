@@ -1538,13 +1538,10 @@ impl PolarVirtualMachine {
                                 );
                                 self.bind(partial.name(), partial.clone().into_term());
                             }
-                            Value::Partial(_) => {
-                                let item_partial = partial.in_partial(&item);
-                                self.bind(
-                                    &item_partial.value().as_partial().unwrap().name().clone(),
-                                    item_partial,
-                                );
-                                self.bind(partial.name(), partial.clone().into_term());
+                            Value::Partial(p) => {
+                                let mut item = p.clone();
+                                item.in_partial(partial);
+                                self.bind(item.name(), item.clone().into_term());
                             }
                             _ => {
                                 partial.in_contains(item);
@@ -2701,14 +2698,14 @@ impl Runnable for PolarVirtualMachine {
         if let Some(value) = term {
             self.log_with(|| format!("=> {}", value.to_string()), &[]);
 
-            let var = &self
-                .call_id_symbols
-                .get(&call_id)
-                .expect("unregistered external call ID")
-                .clone();
-            eprintln!("VAR!!!!!!!!!!!!!!!!!!!!!!!!!! {}", var);
-
-            self.bind(var, value);
+            self.bind(
+                &self
+                    .call_id_symbols
+                    .get(&call_id)
+                    .expect("unregistered external call ID")
+                    .clone(),
+                value,
+            );
         } else {
             self.log("=> No more results.", &[]);
 
